@@ -1,0 +1,54 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Event Audit",
+    "description": "Observation-only Minecraft Bedrock Script API event audit.",
+    "uuid": "c05ab516-dd9a-412d-8ce1-926454feb046",
+    "version": [
+      0,
+      1,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      50
+    ]
+  },
+  "modules": [
+    {
+      "description": "Behavior Pack",
+      "type": "data",
+      "uuid": "23abb935-9cb3-40b7-8ff9-391a05b87ac5",
+      "version": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "description": "Audit Script",
+      "type": "script",
+      "language": "javascript",
+      "entry": "scripts/main.js",
+      "uuid": "21011e9a-e256-4a47-925c-e2d6dcf51016",
+      "version": [
+        0,
+        1,
+        0
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "module_name": "@minecraft/server",
+      "version": "2.9.0"
+    }
+  ],
+  "metadata": {
+    "authors": [
+      "Eric Blackman"
+    ],
+    "license": "MIT"
+  }
+}
