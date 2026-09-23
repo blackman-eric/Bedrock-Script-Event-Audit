@@ -1,4 +1,4 @@
-# Event Audit v0.2.0
+# Event Audit v0.2.1
 
 Observation-only Minecraft Bedrock Script API event logger.
 

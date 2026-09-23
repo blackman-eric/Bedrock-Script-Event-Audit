@@ -5,7 +5,7 @@ import {
 } from "@minecraft/server";
 
 const PREFIX = "[EVENT-AUDIT]";
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 let sequence = 0;
 let activeMarker = "<none>";
@@ -477,11 +477,9 @@ world.beforeEvents.entityRemove.subscribe(event => {
     const entity = event.removedEntity;
     const id = entityId(entity);
 
-    // Keep removal noise manageable. Observed entities and entities removed
-    // right next to a recent attack are retained.
-    if (!recentlyObserved.has(id) && !isNearRecentAttack(entity))
-        return;
-
+    // Do not filter removal events. Some one-hit/destruction paths can remove
+    // the target before playerSwingStart runs, so a "recently observed" filter
+    // can hide exactly the removal path this audit is intended to detect.
     emit("BEFORE_ENTITY_REMOVE", {
         ...entityContext(entity),
         recentlyObserved: recentlyObserved.has(id),
@@ -714,12 +712,13 @@ world.afterEvents.entityDie.subscribe(event => {
 
 world.afterEvents.entityRemove.subscribe(event => {
     const id = safe(() => event.removedEntityId);
-    if (!recentlyObserved.has(id))
-        return;
 
+    // Log every removal. World/chunk unload noise is acceptable in the broad
+    // audit and can be separated later by timestamp/action pass.
     emit("AFTER_ENTITY_REMOVE", {
         targetType: safe(() => event.typeId),
-        targetId: id
+        targetId: id,
+        recentlyObserved: recentlyObserved.has(id)
     });
 
     recentlyObserved.delete(id);
