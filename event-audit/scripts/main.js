@@ -5,7 +5,7 @@ import {
 } from "@minecraft/server";
 
 const PREFIX = "[EVENT-AUDIT]";
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 let sequence = 0;
 let activeMarker = "<none>";
@@ -34,9 +34,12 @@ function nowTick() {
 }
 
 function pos(location) {
-    if (!location)
+    if (!location ||
+        typeof location.x !== "number" ||
+        typeof location.y !== "number" ||
+        typeof location.z !== "number")
         return "<none>";
-    return `${Number(location.x).toFixed(2)},${Number(location.y).toFixed(2)},${Number(location.z).toFixed(2)}`;
+    return `${location.x.toFixed(2)},${location.y.toFixed(2)},${location.z.toFixed(2)}`;
 }
 
 function entityId(entity) {
@@ -70,6 +73,9 @@ function playerContext(player) {
 }
 
 function entityContext(entity) {
+    if (!entity || typeof entity !== "object")
+        return {};
+
     const typeId = entityType(entity);
 
     let isChested = "<n/a>";
@@ -96,6 +102,9 @@ function entityContext(entity) {
 }
 
 function blockContext(block) {
+    if (!block || typeof block !== "object")
+        return {};
+
     return {
         blockType: safe(() => block?.typeId),
         blockPos: pos(safe(() => block?.location, undefined)),
@@ -158,17 +167,22 @@ function nearestViewEntity(player) {
         return {
             viewTargetType: "<none>",
             viewTargetId: "<none>",
-            viewTargetDistance: "<none>"
+            viewTargetDistance: "<none>",
+            viewCandidates: "<none>"
         };
     }
 
-    const hit = hits[0];
-    rememberEntity(hit.entity);
+    const candidates = hits.slice(0, 8).map(hit => {
+        rememberEntity(hit.entity);
+        return `${entityType(hit.entity)}#${entityId(hit.entity)}@${safe(() => Number(hit.distance).toFixed(3))}`;
+    });
 
+    const hit = hits[0];
     return {
         viewTargetType: entityType(hit.entity),
         viewTargetId: entityId(hit.entity),
-        viewTargetDistance: safe(() => Number(hit.distance).toFixed(3))
+        viewTargetDistance: safe(() => Number(hit.distance).toFixed(3)),
+        viewCandidates: candidates.join(";")
     };
 }
 
@@ -322,6 +336,7 @@ const EXPLICIT_WORLD_BEFORE = new Set([
     "entityHurt",
     "entityItemPickup",
     "entityRemove",
+    "entityTamed",
     "explosion",
     "itemUse",
     "playerBreakBlock",
@@ -345,6 +360,10 @@ const EXPLICIT_WORLD_AFTER = new Set([
     "entityHealthChanged",
     "entityDie",
     "entityRemove",
+    "entityHeal",
+    "entityStartSneaking",
+    "entityStopSneaking",
+    "entityTamed",
     "playerInteractWithBlock",
     "playerBreakBlock",
     "playerStartBreakingBlock",
@@ -407,7 +426,7 @@ function pruneCaches() {
 }
 
 // -----------------------------------------------------------------------------
-// ALL STABLE @minecraft/server 2.9.0 WORLD BEFORE-EVENT SIGNALS
+// STABLE @minecraft/server 2.10.0 WORLD BEFORE-EVENT SIGNALS
 //
 // The audit does NOT assume in advance which before-event is useful.
 // Nothing is cancelled or mutated. Each event records whether a `cancel`
@@ -422,9 +441,13 @@ world.beforeEvents.effectAdd.subscribe(event => {
 });
 
 world.beforeEvents.entityHeal.subscribe(event => {
+    rememberEntity(event.healedEntity);
     emit("BEFORE_ENTITY_HEAL", {
-        ...genericBeforeContext(event),
-        amount: safe(() => event.amount)
+        ...entityContext(event.healedEntity),
+        healing: safe(() => event.healing),
+        healCause: safe(() => event.healSource.cause),
+        hasCancelProperty: safe(() => "cancel" in event, false),
+        cancelValue: safe(() => event.cancel, "<not-present>")
     });
 });
 
@@ -468,6 +491,19 @@ world.beforeEvents.entityRemove.subscribe(event => {
     });
 });
 
+world.beforeEvents.entityTamed.subscribe(event => {
+    rememberEntity(event.entity);
+    const tamingEntity = safe(() => event.tamingEntity, undefined);
+    emit("BEFORE_ENTITY_TAMED", {
+        ...entityContext(event.entity),
+        tamingEntityType: entityType(tamingEntity),
+        tamingEntityId: entityId(tamingEntity),
+        tamingPlayerName: safe(() => tamingEntity?.name, "<none>"),
+        hasCancelProperty: safe(() => "cancel" in event, false),
+        cancelValue: safe(() => event.cancel, "<not-present>")
+    });
+});
+
 world.beforeEvents.explosion.subscribe(event => {
     emit("BEFORE_EXPLOSION", {
         sourceType: entityType(event.source),
@@ -480,10 +516,12 @@ world.beforeEvents.explosion.subscribe(event => {
 });
 
 world.beforeEvents.itemUse.subscribe(event => {
-    emit("BEFORE_ITEM_USE", {
-        ...genericBeforeContext(event),
+    emitPlayer("BEFORE_ITEM_USE", event.source, {
+        item: itemType(event.itemStack),
         sourceType: entityType(event.source),
-        sourceId: entityId(event.source)
+        sourceId: entityId(event.source),
+        hasCancelProperty: safe(() => "cancel" in event, false),
+        cancelValue: safe(() => event.cancel, "<not-present>")
     });
 });
 
@@ -687,6 +725,38 @@ world.afterEvents.entityRemove.subscribe(event => {
     recentlyObserved.delete(id);
 });
 
+world.afterEvents.entityHeal.subscribe(event => {
+    rememberEntity(event.healedEntity);
+    emit("AFTER_ENTITY_HEAL", {
+        ...entityContext(event.healedEntity),
+        healing: safe(() => event.healing),
+        healCause: safe(() => event.healSource.cause)
+    });
+});
+
+world.afterEvents.entityTamed.subscribe(event => {
+    rememberEntity(event.entity);
+    const tamingEntity = safe(() => event.tamingEntity, undefined);
+    emit("AFTER_ENTITY_TAMED", {
+        ...entityContext(event.entity),
+        tamingEntityType: entityType(tamingEntity),
+        tamingEntityId: entityId(tamingEntity),
+        tamingPlayerName: safe(() => tamingEntity?.name, "<none>")
+    });
+});
+
+world.afterEvents.entityStartSneaking.subscribe(event => {
+    if (entityType(event.entity) !== "minecraft:player")
+        return;
+    emitPlayer("ENTITY_START_SNEAKING", event.entity);
+});
+
+world.afterEvents.entityStopSneaking.subscribe(event => {
+    if (entityType(event.entity) !== "minecraft:player")
+        return;
+    emitPlayer("ENTITY_STOP_SNEAKING", event.entity);
+});
+
 world.afterEvents.playerInteractWithBlock.subscribe(event => {
     emitPlayer("AFTER_INTERACT_BLOCK", event.player, {
         ...blockContext(event.block),
@@ -718,56 +788,57 @@ world.afterEvents.playerCancelBreakingBlock.subscribe(event => {
 });
 
 world.afterEvents.itemUse.subscribe(event => {
-    emit("AFTER_ITEM_USE", {
-        ...genericBeforeContext(event),
+    emitPlayer("AFTER_ITEM_USE", event.source, {
+        item: itemType(event.itemStack),
         sourceType: entityType(event.source),
         sourceId: entityId(event.source)
     });
 });
 
 world.afterEvents.itemStartUse.subscribe(event => {
-    emit("AFTER_ITEM_START_USE", {
-        ...genericBeforeContext(event),
+    emitPlayer("AFTER_ITEM_START_USE", event.source, {
+        item: itemType(event.itemStack),
         sourceType: entityType(event.source),
         sourceId: entityId(event.source)
     });
 });
 
 world.afterEvents.itemReleaseUse.subscribe(event => {
-    emit("AFTER_ITEM_RELEASE_USE", {
-        ...genericBeforeContext(event),
+    emitPlayer("AFTER_ITEM_RELEASE_USE", event.source, {
+        item: itemType(event.itemStack),
         sourceType: entityType(event.source),
         sourceId: entityId(event.source)
     });
 });
 
 world.afterEvents.itemStopUse.subscribe(event => {
-    emit("AFTER_ITEM_STOP_USE", {
-        ...genericBeforeContext(event),
+    emitPlayer("AFTER_ITEM_STOP_USE", event.source, {
+        item: itemType(event.itemStack),
         sourceType: entityType(event.source),
         sourceId: entityId(event.source)
     });
 });
 
 world.afterEvents.itemCompleteUse.subscribe(event => {
-    emit("AFTER_ITEM_COMPLETE_USE", {
-        ...genericBeforeContext(event),
+    emitPlayer("AFTER_ITEM_COMPLETE_USE", event.source, {
+        item: itemType(event.itemStack),
         sourceType: entityType(event.source),
         sourceId: entityId(event.source)
     });
 });
 
 world.afterEvents.itemStartUseOn.subscribe(event => {
-    emit("AFTER_ITEM_START_USE_ON", {
-        ...genericBeforeContext(event),
-        ...blockContext(safe(() => event.block, undefined))
+    emitPlayer("AFTER_ITEM_START_USE_ON", event.source, {
+        ...blockContext(event.block),
+        item: itemType(event.itemStack),
+        face: safe(() => event.blockFace)
     });
 });
 
 world.afterEvents.itemStopUseOn.subscribe(event => {
-    emit("AFTER_ITEM_STOP_USE_ON", {
-        ...genericBeforeContext(event),
-        ...blockContext(safe(() => event.block, undefined))
+    emitPlayer("AFTER_ITEM_STOP_USE_ON", event.source, {
+        ...blockContext(event.block),
+        item: itemType(event.itemStack)
     });
 });
 
@@ -902,7 +973,7 @@ subscribeGenericUnknownSignals(
 
 emit("PROBE_LOADED", {
     version: VERSION,
-    api: "@minecraft/server 2.9.0",
+    requestedApi: "@minecraft/server 2.10.0",
     apiTrack: "stable",
     observationOnly: true,
     allDocumentedStableWorldBeforeEventsSubscribed: true,
