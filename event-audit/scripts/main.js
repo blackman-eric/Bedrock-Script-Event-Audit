@@ -5,7 +5,7 @@ import {
 } from "@minecraft/server";
 
 const PREFIX = "[EVENT-AUDIT]";
-const VERSION = "0.2.1";
+const VERSION = "1.0.0";
 
 let sequence = 0;
 let activeMarker = "<none>";
@@ -331,43 +331,43 @@ function logRuntimeEventSurfaces() {
 }
 
 const EXPLICIT_WORLD_BEFORE = new Set([
-    "effectAdd",
-    "entityHeal",
     "entityHurt",
-    "entityItemPickup",
     "entityRemove",
     "entityTamed",
     "explosion",
     "itemUse",
     "playerBreakBlock",
-    "playerGameModeChange",
     "playerInteractWithBlock",
-    "playerInteractWithEntity",
+    "playerInteractWithEntity"
+]);
+
+const IGNORED_WORLD_BEFORE = new Set([
+    "effectAdd",
+    "entityHeal",
+    "entityItemPickup",
+    "playerGameModeChange",
     "playerLeave",
     "weatherChange"
 ]);
 
 const EXPLICIT_WORLD_AFTER = new Set([
-    "playerSpawn",
-    "playerGameModeChange",
-    "playerInputModeChange",
-    "playerButtonInput",
     "playerInteractWithEntity",
     "entityHurt",
     "entityHitEntity",
     "entityHitBlock",
     "playerSwingStart",
-    "entityHealthChanged",
-    "entityDie",
-    "entityRemove",
-    "entityHeal",
+    "playerButtonInput",
     "entityStartSneaking",
     "entityStopSneaking",
+    "entityDie",
+    "entityRemove",
     "entityTamed",
     "playerInteractWithBlock",
     "playerBreakBlock",
     "playerStartBreakingBlock",
     "playerCancelBreakingBlock",
+    "buttonPush",
+    "leverAction",
     "itemUse",
     "itemStartUse",
     "itemReleaseUse",
@@ -378,32 +378,26 @@ const EXPLICIT_WORLD_AFTER = new Set([
     "explosion",
     "blockExplode",
     "entityContainerOpened",
-    "entityContainerClosed",
     "blockContainerOpened",
-    "blockContainerClosed",
-    "buttonPush",
-    "leverAction",
     "projectileHitEntity",
     "projectileHitBlock"
 ]);
 
-function subscribeGenericUnknownSignals(surfaceName, surface, explicitNames, prefix) {
-    for (const name of eventSignalNames(surface)) {
-        if (explicitNames.has(name))
+function subscribeUnknownBeforeSignals() {
+    for (const name of eventSignalNames(world.beforeEvents)) {
+        if (EXPLICIT_WORLD_BEFORE.has(name) || IGNORED_WORLD_BEFORE.has(name))
             continue;
 
         try {
-            surface[name].subscribe(event => {
-                emit(`${prefix}_${name}`, genericEventContext(event));
+            world.beforeEvents[name].subscribe(event => {
+                emit(`UNEXPECTED_BEFORE_${name}`, genericEventContext(event));
             });
 
-            emit("RUNTIME_FALLBACK_SUBSCRIBED", {
-                surface: surfaceName,
+            emit("RUNTIME_UNKNOWN_BEFORE_SUBSCRIBED", {
                 signal: name
             });
         } catch (error) {
-            emit("RUNTIME_FALLBACK_SUBSCRIBE_FAILED", {
-                surface: surfaceName,
+            emit("RUNTIME_UNKNOWN_BEFORE_SUBSCRIBE_FAILED", {
                 signal: name,
                 error: safe(() => error.message, String(error))
             });
@@ -433,24 +427,6 @@ function pruneCaches() {
 // property is actually exposed on the runtime event object.
 // -----------------------------------------------------------------------------
 
-world.beforeEvents.effectAdd.subscribe(event => {
-    emit("BEFORE_EFFECT_ADD", {
-        ...genericBeforeContext(event),
-        effectType: safe(() => event.effect.typeId)
-    });
-});
-
-world.beforeEvents.entityHeal.subscribe(event => {
-    rememberEntity(event.healedEntity);
-    emit("BEFORE_ENTITY_HEAL", {
-        ...entityContext(event.healedEntity),
-        healing: safe(() => event.healing),
-        healCause: safe(() => event.healSource.cause),
-        hasCancelProperty: safe(() => "cancel" in event, false),
-        cancelValue: safe(() => event.cancel, "<not-present>")
-    });
-});
-
 world.beforeEvents.entityHurt.subscribe(event => {
     const player = damagingPlayer(event.damageSource);
     const entity = event.hurtEntity;
@@ -464,12 +440,6 @@ world.beforeEvents.entityHurt.subscribe(event => {
         projectileType: entityType(safe(() => event.damageSource.damagingProjectile, undefined)),
         hasCancelProperty: safe(() => "cancel" in event, false),
         cancelValue: safe(() => event.cancel, "<not-present>")
-    });
-});
-
-world.beforeEvents.entityItemPickup.subscribe(event => {
-    emit("BEFORE_ENTITY_ITEM_PICKUP", {
-        ...genericBeforeContext(event)
     });
 });
 
@@ -532,15 +502,6 @@ world.beforeEvents.playerBreakBlock.subscribe(event => {
     });
 });
 
-world.beforeEvents.playerGameModeChange.subscribe(event => {
-    emitPlayer("BEFORE_GAME_MODE_CHANGE", event.player, {
-        fromMode: event.fromGameMode,
-        toMode: event.toGameMode,
-        hasCancelProperty: safe(() => "cancel" in event, false),
-        cancelValue: safe(() => event.cancel, "<not-present>")
-    });
-});
-
 world.beforeEvents.playerInteractWithBlock.subscribe(event => {
     emitPlayer("BEFORE_INTERACT_BLOCK", event.player, {
         ...blockContext(event.block),
@@ -562,48 +523,9 @@ world.beforeEvents.playerInteractWithEntity.subscribe(event => {
     });
 });
 
-world.beforeEvents.playerLeave.subscribe(event => {
-    emit("BEFORE_PLAYER_LEAVE", {
-        playerId: safe(() => event.playerId),
-        playerName: safe(() => event.playerName),
-        hasCancelProperty: safe(() => "cancel" in event, false),
-        cancelValue: safe(() => event.cancel, "<not-present>")
-    });
-});
-
-world.beforeEvents.weatherChange.subscribe(event => {
-    emit("BEFORE_WEATHER_CHANGE", {
-        dimension: safe(() => event.dimension.id),
-        newWeather: safe(() => event.newWeather),
-        previousWeather: safe(() => event.previousWeather),
-        hasCancelProperty: safe(() => "cancel" in event, false),
-        cancelValue: safe(() => event.cancel, "<not-present>")
-    });
-});
-
 // -----------------------------------------------------------------------------
 // SUPPORTING AFTER-EVENTS
 // -----------------------------------------------------------------------------
-
-world.afterEvents.playerSpawn.subscribe(event => {
-    emitPlayer("PLAYER_SPAWN", event.player, {
-        initialSpawn: event.initialSpawn
-    });
-});
-
-world.afterEvents.playerGameModeChange.subscribe(event => {
-    emitPlayer("AFTER_GAME_MODE_CHANGE", event.player, {
-        fromMode: event.fromGameMode,
-        toMode: event.toGameMode
-    });
-});
-
-world.afterEvents.playerInputModeChange.subscribe(event => {
-    emitPlayer("PLAYER_INPUT_MODE_CHANGE", event.player, {
-        previousInputMode: safe(() => event.previousInputMode),
-        newInputMode: safe(() => event.newInputMode)
-    });
-});
 
 world.afterEvents.playerButtonInput.subscribe(event => {
     emitPlayer("SNEAK_BUTTON", event.player, {
@@ -612,6 +534,18 @@ world.afterEvents.playerButtonInput.subscribe(event => {
     });
 }, {
     buttons: [InputButton.Sneak]
+});
+
+world.afterEvents.entityStartSneaking.subscribe(event => {
+    if (entityType(event.entity) !== "minecraft:player")
+        return;
+    emitPlayer("ENTITY_START_SNEAKING", event.entity);
+});
+
+world.afterEvents.entityStopSneaking.subscribe(event => {
+    if (entityType(event.entity) !== "minecraft:player")
+        return;
+    emitPlayer("ENTITY_STOP_SNEAKING", event.entity);
 });
 
 world.afterEvents.playerInteractWithEntity.subscribe(event => {
@@ -682,18 +616,6 @@ world.afterEvents.playerSwingStart.subscribe(event => {
     }
 });
 
-world.afterEvents.entityHealthChanged.subscribe(event => {
-    const id = entityId(event.entity);
-    if (!recentlyObserved.has(id))
-        return;
-
-    emit("AFTER_ENTITY_HEALTH_CHANGED", {
-        ...entityContext(event.entity),
-        oldValue: event.oldValue,
-        newValue: event.newValue
-    });
-});
-
 world.afterEvents.entityDie.subscribe(event => {
     const player = damagingPlayer(event.damageSource);
     const id = entityId(event.deadEntity);
@@ -724,15 +646,6 @@ world.afterEvents.entityRemove.subscribe(event => {
     recentlyObserved.delete(id);
 });
 
-world.afterEvents.entityHeal.subscribe(event => {
-    rememberEntity(event.healedEntity);
-    emit("AFTER_ENTITY_HEAL", {
-        ...entityContext(event.healedEntity),
-        healing: safe(() => event.healing),
-        healCause: safe(() => event.healSource.cause)
-    });
-});
-
 world.afterEvents.entityTamed.subscribe(event => {
     rememberEntity(event.entity);
     const tamingEntity = safe(() => event.tamingEntity, undefined);
@@ -742,18 +655,6 @@ world.afterEvents.entityTamed.subscribe(event => {
         tamingEntityId: entityId(tamingEntity),
         tamingPlayerName: safe(() => tamingEntity?.name, "<none>")
     });
-});
-
-world.afterEvents.entityStartSneaking.subscribe(event => {
-    if (entityType(event.entity) !== "minecraft:player")
-        return;
-    emitPlayer("ENTITY_START_SNEAKING", event.entity);
-});
-
-world.afterEvents.entityStopSneaking.subscribe(event => {
-    if (entityType(event.entity) !== "minecraft:player")
-        return;
-    emitPlayer("ENTITY_STOP_SNEAKING", event.entity);
 });
 
 world.afterEvents.playerInteractWithBlock.subscribe(event => {
@@ -783,6 +684,21 @@ world.afterEvents.playerStartBreakingBlock.subscribe(event => {
 world.afterEvents.playerCancelBreakingBlock.subscribe(event => {
     emitPlayer("CANCEL_BREAKING_BLOCK", event.player, {
         ...blockContext(event.block)
+    });
+});
+
+world.afterEvents.buttonPush.subscribe(event => {
+    emit("AFTER_BUTTON_PUSH", {
+        ...blockContext(safe(() => event.block, undefined)),
+        sourceType: entityType(safe(() => event.source, undefined)),
+        sourceId: entityId(safe(() => event.source, undefined))
+    });
+});
+
+world.afterEvents.leverAction.subscribe(event => {
+    emitPlayer("AFTER_LEVER_ACTION", safe(() => event.player, undefined), {
+        ...blockContext(safe(() => event.block, undefined)),
+        isPowered: safe(() => event.isPowered)
     });
 });
 
@@ -869,17 +785,6 @@ world.afterEvents.entityContainerOpened.subscribe(event => {
     });
 });
 
-world.afterEvents.entityContainerClosed.subscribe(event => {
-    rememberEntity(event.entity);
-    const sourceEntity = accessSourceEntity(event.closeSource);
-
-    emit(entityType(sourceEntity) === "minecraft:player" ? "ENTITY_CONTAINER_CLOSED_PLAYER_SOURCE" : "ENTITY_CONTAINER_CLOSED", {
-        ...(entityType(sourceEntity) === "minecraft:player" ? playerContext(sourceEntity) : {}),
-        ...entityContext(event.entity),
-        ...accessSourceContext(event.closeSource)
-    });
-});
-
 world.afterEvents.blockContainerOpened.subscribe(event => {
     const sourceEntity = accessSourceEntity(event.openSource);
 
@@ -887,31 +792,6 @@ world.afterEvents.blockContainerOpened.subscribe(event => {
         ...(entityType(sourceEntity) === "minecraft:player" ? playerContext(sourceEntity) : {}),
         ...blockContext(event.block),
         ...accessSourceContext(event.openSource)
-    });
-});
-
-world.afterEvents.blockContainerClosed.subscribe(event => {
-    const sourceEntity = accessSourceEntity(event.closeSource);
-
-    emit(entityType(sourceEntity) === "minecraft:player" ? "BLOCK_CONTAINER_CLOSED_PLAYER_SOURCE" : "BLOCK_CONTAINER_CLOSED", {
-        ...(entityType(sourceEntity) === "minecraft:player" ? playerContext(sourceEntity) : {}),
-        ...blockContext(event.block),
-        ...accessSourceContext(event.closeSource)
-    });
-});
-
-world.afterEvents.buttonPush.subscribe(event => {
-    emit("AFTER_BUTTON_PUSH", {
-        ...blockContext(safe(() => event.block, undefined)),
-        sourceType: entityType(safe(() => event.source, undefined)),
-        sourceId: entityId(safe(() => event.source, undefined))
-    });
-});
-
-world.afterEvents.leverAction.subscribe(event => {
-    emitPlayer("AFTER_LEVER_ACTION", safe(() => event.player, undefined), {
-        ...blockContext(safe(() => event.block, undefined)),
-        isPowered: safe(() => event.isPowered)
     });
 });
 
@@ -957,24 +837,13 @@ system.afterEvents.scriptEventReceive.subscribe(event => {
 system.runInterval(pruneCaches, 20);
 
 logRuntimeEventSurfaces();
-subscribeGenericUnknownSignals(
-    "world.beforeEvents",
-    world.beforeEvents,
-    EXPLICIT_WORLD_BEFORE,
-    "UNEXPECTED_BEFORE"
-);
-subscribeGenericUnknownSignals(
-    "world.afterEvents",
-    world.afterEvents,
-    EXPLICIT_WORLD_AFTER,
-    "UNEXPECTED_AFTER"
-);
+subscribeUnknownBeforeSignals();
 
 emit("PROBE_LOADED", {
     version: VERSION,
     requestedApi: "@minecraft/server 2.10.0",
     apiTrack: "stable",
     observationOnly: true,
-    allDocumentedStableWorldBeforeEventsSubscribed: true,
-    runtimeUnknownWorldSignalsAutoSubscribed: true
+    focusedSubscriptions: true,
+    runtimeUnknownBeforeSignalsAutoSubscribed: true
 });
