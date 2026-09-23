@@ -1,7 +1,10 @@
-# MCPE-174388 Repro v0.1.0
+# MCPE-174388 Repro v0.2.0
 
-Early observation-only reproduction for MCPE-174388.
+Focused, observation-only reproduction for MCPE-174388.
 
-- Target Script API: `@minecraft/server` 2.11.0-beta
-- Logs player attack-related entity events without cancelling or modifying them.
-- Intended to compare ordinary living-entity damage events with boat/minecart-style attack behavior.
+Target environment:
+
+- Minecraft Bedrock 26.51 stable
+- `@minecraft/server` 2.10.0 stable
+
+This snapshot narrows logging to the event paths needed for the issue: `entityHurt` before/after, `entityHitEntity`, entity death/removal, and related player attack context. No events are cancelled and gameplay behavior is not modified.

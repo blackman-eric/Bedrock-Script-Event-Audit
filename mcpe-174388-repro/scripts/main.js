@@ -1,145 +1,146 @@
 import { world } from "@minecraft/server";
 
-const WATCHED_TYPES = new Set([
-    "minecraft:donkey",
-    "minecraft:mule",
-    "minecraft:llama",
-    "minecraft:trader_llama",
-    "minecraft:chest_minecart",
-    "minecraft:hopper_minecart",
-    "minecraft:chest_boat",
-    "minecraft:boat",
+const PREFIX = "[MCPE-174388-REPRO]";
+
+// One ordinary living entity is included as a control. The remaining entries
+// are the affected entity types verified during the broader event audit.
+const TARGET_TYPES = new Set([
+    "minecraft:cow",
     "minecraft:minecart",
-    "minecraft:armor_stand"
+    "minecraft:hopper_minecart",
+    "minecraft:chest_minecart",
+    "minecraft:tnt_minecart",
+    "minecraft:command_block_minecart",
+    "minecraft:boat",
+    "minecraft:chest_boat",
+    "minecraft:armor_stand",
+    "minecraft:painting"
 ]);
 
-function safeTypeId(entity) {
+function safe(fn, fallback = "<unavailable>") {
     try {
-        return entity?.typeId ?? "<none>";
+        const value = fn();
+        return value ?? fallback;
     } catch {
-        return "<unavailable>";
+        return fallback;
     }
 }
 
-function isWatched(entity) {
-    return WATCHED_TYPES.has(safeTypeId(entity));
+function entityType(entity) {
+    return safe(() => entity.typeId);
 }
 
-function describeEntity(entity) {
-    const typeId = safeTypeId(entity);
-    let chested = "n/a";
-    let containerType = "none";
-    let containerSize = "none";
-
-    try {
-        if (["minecraft:donkey", "minecraft:mule", "minecraft:llama", "minecraft:trader_llama"].includes(typeId))
-            chested = String(entity.hasComponent("minecraft:is_chested"));
-    } catch {}
-
-    try {
-        const inventory = entity?.getComponent("minecraft:inventory");
-        if (inventory) {
-            containerType = inventory.containerType ?? "<unknown>";
-            containerSize = inventory.container?.size ?? "<unavailable>";
-        }
-    } catch {}
-
-    return `${typeId} chested=${chested} containerType=${containerType} containerSize=${containerSize}`;
+function entityId(entity) {
+    return safe(() => entity.id);
 }
 
-function sourceIsPlayer(damageSource) {
-    return safeTypeId(damageSource?.damagingEntity) === "minecraft:player";
+function isTarget(entity) {
+    return TARGET_TYPES.has(entityType(entity));
 }
 
-function log(message) {
-    console.warn(`[MCPE-174388] ${message}`);
+function damagingPlayer(damageSource) {
+    const entity = safe(() => damageSource.damagingEntity, undefined);
+    return entityType(entity) === "minecraft:player" ? entity : undefined;
 }
 
-log("probe loaded");
+function emit(eventName, fields = {}) {
+    const details = Object.entries(fields)
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join(" | ");
+    console.warn(`${PREFIX} event=${eventName}${details ? ` | ${details}` : ""}`);
+}
 
-// Interaction path: these events are included to show that the same target entities
-// are exposed normally through entity-interaction events.
-world.beforeEvents.playerInteractWithEntity.subscribe(event => {
-    if (!isWatched(event.target))
-        return;
+function targetFields(entity) {
+    return {
+        targetType: entityType(entity),
+        targetId: entityId(entity)
+    };
+}
 
-    log(`BEFORE playerInteractWithEntity | target=${describeEntity(event.target)} | player=${event.player.name}`);
-});
-
-world.afterEvents.playerInteractWithEntity.subscribe(event => {
-    if (!isWatched(event.target))
-        return;
-
-    log(`AFTER playerInteractWithEntity | target=${describeEntity(event.target)} | player=${event.player.name}`);
-});
-
-// Damage path under test.
+// CONTROL / PRIMARY EVENT UNDER TEST -----------------------------------------
+// For an ordinary living entity such as a cow, this fires before player attack
+// damage and exposes a cancellable event. For the affected non-living targets,
+// the event is absent.
 world.beforeEvents.entityHurt.subscribe(event => {
-    if (!sourceIsPlayer(event.damageSource) || !isWatched(event.hurtEntity))
+    const player = damagingPlayer(event.damageSource);
+    if (!player || !isTarget(event.hurtEntity))
         return;
 
-    log(
-        `BEFORE entityHurt | target=${describeEntity(event.hurtEntity)} | ` +
-        `source=${safeTypeId(event.damageSource.damagingEntity)} | ` +
-        `cause=${event.damageSource.cause} | damage=${event.damage}`
-    );
+    emit("BEFORE_ENTITY_HURT", {
+        player: safe(() => player.name),
+        ...targetFields(event.hurtEntity),
+        cause: safe(() => event.damageSource.cause),
+        damage: safe(() => event.damage),
+        hasCancelProperty: safe(() => "cancel" in event, false),
+        cancelValue: safe(() => event.cancel, "<not-present>")
+    });
 });
 
 world.afterEvents.entityHurt.subscribe(event => {
-    if (!sourceIsPlayer(event.damageSource) || !isWatched(event.hurtEntity))
+    const player = damagingPlayer(event.damageSource);
+    if (!player || !isTarget(event.hurtEntity))
         return;
 
-    log(
-        `AFTER entityHurt | target=${describeEntity(event.hurtEntity)} | ` +
-        `source=${safeTypeId(event.damageSource.damagingEntity)} | ` +
-        `cause=${event.damageSource.cause} | damage=${event.damage}`
-    );
+    emit("AFTER_ENTITY_HURT", {
+        player: safe(() => player.name),
+        ...targetFields(event.hurtEntity),
+        cause: safe(() => event.damageSource.cause),
+        damage: safe(() => event.damage)
+    });
 });
 
-// These events show that the player's melee action is still visible even when
-// entityHurt is absent for the affected non-living entities.
+// Confirms that a player hit many of the affected targets even though the
+// EntityHurt before/after event family is missing for that same attack path.
 world.afterEvents.entityHitEntity.subscribe(event => {
-    if (safeTypeId(event.damagingEntity) !== "minecraft:player" || !isWatched(event.hitEntity))
+    if (entityType(event.damagingEntity) !== "minecraft:player" || !isTarget(event.hitEntity))
         return;
 
-    log(
-        `AFTER entityHitEntity | target=${describeEntity(event.hitEntity)} | ` +
-        `source=${safeTypeId(event.damagingEntity)}`
-    );
+    emit("AFTER_HIT_ENTITY", {
+        player: safe(() => event.damagingEntity.name),
+        ...targetFields(event.hitEntity)
+    });
 });
 
-world.afterEvents.playerSwingStart.subscribe(event => {
-    let held = "<empty>";
-    try {
-        held = event.heldItemStack?.typeId ?? "<empty>";
-    } catch {}
+// Useful control when the living entity is killed. A normal living entity can
+// later be removed too; removal itself is NOT the bug being demonstrated.
+world.afterEvents.entityDie.subscribe(event => {
+    const player = damagingPlayer(event.damageSource);
+    if (!player || !isTarget(event.deadEntity))
+        return;
 
-    log(`AFTER playerSwingStart | player=${event.player.name} | held=${held} | source=${event.swingSource}`);
+    emit("AFTER_ENTITY_DIE", {
+        player: safe(() => player.name),
+        ...targetFields(event.deadEntity),
+        cause: safe(() => event.damageSource.cause)
+    });
 });
 
-// Removal/death diagnostics. These do not replace a cancellable pre-damage event;
-// they are logged only to show the lifecycle path when a target is destroyed.
+// Destruction/removal is observable for affected targets, but this before-event
+// does not expose a cancel property. This is logged only to show that it cannot
+// replace the missing cancellable EntityHurtBeforeEvent.
 world.beforeEvents.entityRemove.subscribe(event => {
-    if (!isWatched(event.removedEntity))
+    if (!isTarget(event.removedEntity))
         return;
 
-    log(`BEFORE entityRemove | target=${describeEntity(event.removedEntity)}`);
+    emit("BEFORE_ENTITY_REMOVE", {
+        ...targetFields(event.removedEntity),
+        hasCancelProperty: safe(() => "cancel" in event, false),
+        cancelValue: safe(() => event.cancel, "<not-present>")
+    });
 });
 
 world.afterEvents.entityRemove.subscribe(event => {
-    if (!WATCHED_TYPES.has(event.typeId))
+    const typeId = safe(() => event.typeId);
+    if (!TARGET_TYPES.has(typeId))
         return;
 
-    log(`AFTER entityRemove | target=${event.typeId} | id=${event.removedEntityId}`);
+    emit("AFTER_ENTITY_REMOVE", {
+        targetType: typeId,
+        targetId: safe(() => event.removedEntityId)
+    });
 });
 
-world.afterEvents.entityDie.subscribe(event => {
-    if (!isWatched(event.deadEntity))
-        return;
-
-    log(
-        `AFTER entityDie | target=${describeEntity(event.deadEntity)} | ` +
-        `source=${safeTypeId(event.damageSource?.damagingEntity)} | ` +
-        `cause=${event.damageSource?.cause ?? "<none>"}`
-    );
+emit("REPRO_LOADED", {
+    api: "@minecraft/server 2.10.0",
+    observationOnly: true
 });

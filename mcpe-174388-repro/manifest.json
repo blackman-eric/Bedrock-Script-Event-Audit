@@ -6,7 +6,7 @@
     "uuid": "22ef0cec-be24-4805-8791-d434cda70c50",
     "version": [
       0,
-      1,
+      2,
       0
     ],
     "min_engine_version": [
@@ -22,7 +22,7 @@
       "uuid": "84ff2765-0a2a-4e83-9bca-50e03cadcdcb",
       "version": [
         0,
-        1,
+        2,
         0
       ]
     },
@@ -34,7 +34,7 @@
       "uuid": "821c2953-74f4-4bd1-8bf1-3cb9ccd68377",
       "version": [
         0,
-        1,
+        2,
         0
       ]
     }
@@ -42,7 +42,7 @@
   "dependencies": [
     {
       "module_name": "@minecraft/server",
-      "version": "2.11.0-beta"
+      "version": "2.10.0"
     }
   ],
   "metadata": {
