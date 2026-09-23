@@ -5,8 +5,8 @@
     "description": "Focused Script API reproduction for MCPE-174388 entity attack/damage event behavior.",
     "uuid": "22ef0cec-be24-4805-8791-d434cda70c50",
     "version": [
+      1,
       0,
-      2,
       0
     ],
     "min_engine_version": [
@@ -21,8 +21,8 @@
       "type": "data",
       "uuid": "84ff2765-0a2a-4e83-9bca-50e03cadcdcb",
       "version": [
+        1,
         0,
-        2,
         0
       ]
     },
@@ -33,8 +33,8 @@
       "entry": "scripts/main.js",
       "uuid": "821c2953-74f4-4bd1-8bf1-3cb9ccd68377",
       "version": [
+        1,
         0,
-        2,
         0
       ]
     }
