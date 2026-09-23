@@ -52,3 +52,8 @@ This creates both `.mcpack` files in `dist/`.
 ## License
 
 MIT.
+
+## Choosing a pack
+
+- **Event Audit** — use for broad Script API event investigation and comparing event paths across interactions.
+- **MCPE-174388 Repro** — use for the focused MCPE-174388 reproduction and bug-report testing.
