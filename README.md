@@ -4,21 +4,21 @@ Minecraft Bedrock Script API diagnostics and focused bug reproductions. The reus
 
 ```text
 Bedrock-Script-Event-Audit/
-├─ README.md
-├─ LICENSE
-├─ event-audit/
-│  ├─ README.md
-│  ├─ manifest.json
-│  └─ scripts/
-│     └─ main.js
-├─ mcpe-174388-repro/
-│  ├─ README.md
-│  ├─ manifest.json
-│  └─ scripts/
-│     └─ main.js
-└─ tools/
-   ├─ build.ps1
-   └─ publish-releases.ps1
+├── README.md
+├── LICENSE
+├── event-audit/
+│   ├── README.md
+│   ├── manifest.json
+│   └── scripts/
+│       └── main.js
+├── mcpe-174388-repro/
+│   ├── README.md
+│   ├── manifest.json
+│   └── scripts/
+│       └── main.js
+└── tools/
+    ├── build.ps1
+    └── publish-releases.ps1
 ```
 
 ## Event Audit
@@ -55,5 +55,5 @@ MIT.
 
 ## Choosing a pack
 
-- **Event Audit** � use for broad Script API event investigation and comparing event paths across interactions.
-- **MCPE-174388 Repro** � use for the focused MCPE-174388 reproduction and bug-report testing.
+- **Event Audit** — use for broad Script API event investigation and comparing event paths across interactions.
+- **MCPE-174388 Repro** — use for the focused MCPE-174388 reproduction and bug-report testing.
